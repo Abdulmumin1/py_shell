@@ -1,4 +1,0 @@
-{
-  "type": "patch",
-  "description": "Rename the published distribution to py-fs-shell and publish before creating release commits or tags."
-}
