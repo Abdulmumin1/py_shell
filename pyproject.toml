@@ -1,5 +1,5 @@
 [project]
-name = "py-shell"
+name = "py-fs-shell"
 version = "0.0.1"
 description = "Python virtual filesystem with structured state backend"
 readme = "README.md"

@@ -67,6 +67,20 @@ jobs:
           uv run ruff check tests examples
           uv run pytest
 
+      - name: Build
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: uv build
+
+      - name: Check package metadata
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: uv run twine check dist/*
+
+      - name: Publish to PyPI
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
       - name: Commit and Push
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
@@ -83,20 +97,6 @@ jobs:
           VERSION="${{ steps.semversioner.outputs.version }}"
           python -c "import re; version='$VERSION'; content=open('CHANGELOG.md').read(); match=re.search(r'## ' + re.escape(version) + r'\n(.*?)(?=\n## |\Z)', content, re.DOTALL); print(match.group(1).strip() if match else 'See CHANGELOG.md for details')" > release_notes.md
           gh release create "v$VERSION" \
-            --title "py-shell@$VERSION" \
+            --title "py-fs-shell@$VERSION" \
             --notes-file release_notes.md \
             --generate-notes
-
-      - name: Build
-        if: steps.check_changes.outputs.has_changes == 'true'
-        run: uv build
-
-      - name: Check package metadata
-        if: steps.check_changes.outputs.has_changes == 'true'
-        run: uv run twine check dist/*
-
-      - name: Publish to PyPI
-        if: steps.check_changes.outputs.has_changes == 'true'
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

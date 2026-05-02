@@ -269,7 +269,7 @@ class S3MetadataStore(MetadataStore):
             try:
                 import boto3
             except ImportError as exc:
-                raise ImportError("S3MetadataStore requires boto3. Install with `pip install py-shell[s3]`.") from exc
+                raise ImportError("S3MetadataStore requires boto3. Install with `pip install py-fs-shell[s3]`.") from exc
             client = boto3.client("s3")
         self.client = client
 
@@ -376,7 +376,7 @@ class S3BlobStore(BlobStore):
             try:
                 import boto3
             except ImportError as exc:
-                raise ImportError("S3BlobStore requires boto3. Install with `pip install py-shell[s3]`.") from exc
+                raise ImportError("S3BlobStore requires boto3. Install with `pip install py-fs-shell[s3]`.") from exc
             client = boto3.client("s3")
         self.client = client
 

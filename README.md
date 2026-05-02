@@ -14,20 +14,20 @@ It provides:
 With `uv`:
 
 ```bash
-uv add py-shell
+uv add py-fs-shell
 ```
 
 With `pip`:
 
 ```bash
-pip install py-shell
+pip install py-fs-shell
 ```
 
 For S3-backed workspaces:
 
 ```bash
-uv add 'py-shell[s3]'
-pip install 'py-shell[s3]'
+uv add 'py-fs-shell[s3]'
+pip install 'py-fs-shell[s3]'
 ```
 
 For local development from this repository:
