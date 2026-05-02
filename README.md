@@ -1,4 +1,4 @@
-# py_shell
+# py_fs_shell
 
 Python virtual filesystem primitives for agent workflows, tests, and sandboxed file operations.
 
@@ -11,21 +11,36 @@ It provides:
 
 ## Installation
 
+With `uv`:
+
 ```bash
-pip install -e .
+uv add py-shell
+```
+
+With `pip`:
+
+```bash
+pip install py-shell
 ```
 
 For S3-backed workspaces:
 
 ```bash
-pip install -e '.[s3]'
+uv add 'py-shell[s3]'
+pip install 'py-shell[s3]'
+```
+
+For local development from this repository:
+
+```bash
+uv sync --extra dev --extra s3
 ```
 
 ## Example
 
 ```python
 import asyncio
-from py_shell import StateWriteEditInstruction, workspace
+from py_fs_shell import StateWriteEditInstruction, workspace
 
 async def main():
     ws = await workspace.memory()
@@ -53,11 +68,15 @@ asyncio.run(main())
 S3-backed workspace:
 
 ```python
-from py_shell import workspace
+from py_fs_shell import workspace
 
 ws = await workspace.s3(bucket="my-bucket", prefix="runs/123")
 state = ws.state()
 ```
+
+## Releases
+
+Releases are tracked with `semversioner`. See [RELEASE.md](RELEASE.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

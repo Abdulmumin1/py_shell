@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from py_shell.fs.interface import (
+from py_fs_shell.fs.interface import (
     CpOptions,
     FileContent,
     FileSystem,
@@ -18,7 +18,7 @@ from py_shell.fs.interface import (
     MkdirOptions,
     RmOptions,
 )
-from py_shell.fs.path_utils import create_enoent, create_enotdir, join_path, normalize_path
+from py_fs_shell.fs.path_utils import create_enoent, create_enotdir, join_path, normalize_path
 
 
 class LocalFileSystem(FileSystem):

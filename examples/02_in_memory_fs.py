@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from py_shell import InMemoryFs, MkdirOptions, RmOptions
+from py_fs_shell import InMemoryFs, MkdirOptions, RmOptions
 
 
 async def main() -> None:

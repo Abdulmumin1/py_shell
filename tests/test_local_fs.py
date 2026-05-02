@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from py_shell.local_fs import LocalFileSystem
-from py_shell.fs.interface import MkdirOptions
+from py_fs_shell.fs.interface import MkdirOptions
+from py_fs_shell.local_fs import LocalFileSystem
 
 
 async def run_tests():

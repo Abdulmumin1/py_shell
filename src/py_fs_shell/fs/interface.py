@@ -100,7 +100,7 @@ class FileInit:
 
 
 LazyFileProvider: TypeAlias = Callable[..., FileContent | Awaitable[FileContent]]
-InitialFiles: TypeAlias = dict[str, FileContent | FileInit | LazyFileProvider]
+InitialFiles: TypeAlias = dict[str, FileContent | FileInit | FsEntry | LazyFileProvider]
 
 
 # ── FileSystem Protocol ──────────────────────────────────────────────

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
-from py_shell.fs.interface import (
+from py_fs_shell.fs.interface import (
     CpOptions,
     FileContent,
     FileInit,
@@ -20,7 +20,7 @@ from py_shell.fs.interface import (
     MkdirOptions,
     RmOptions,
 )
-from py_shell.fs.path_utils import (
+from py_fs_shell.fs.path_utils import (
     DEFAULT_DIR_MODE,
     DEFAULT_FILE_MODE,
     MAX_SYMLINK_DEPTH,
@@ -114,8 +114,22 @@ def _node_size(node: _VNode) -> int:
     return 0
 
 
-def _is_init_obj(v: FileContent | FileInit | LazyFileProvider) -> bool:
-    return (
+def _entry_type(v: object) -> str | None:
+    if isinstance(v, dict):
+        raw = v.get("type")
+        return raw if isinstance(raw, str) else None
+    raw = getattr(v, "type", None)
+    return raw if isinstance(raw, str) else None
+
+
+def _get_attr(v: object, key: str, default: object = None) -> object:
+    if isinstance(v, dict):
+        return v.get(key, default)
+    return getattr(v, key, default)
+
+
+def _is_init_obj(v: object) -> bool:
+    return isinstance(v, FileInit) or (
         isinstance(v, dict)
         and "content" in v
     )
@@ -157,14 +171,42 @@ class InMemoryFs(FileSystem):
         self._tree = _fresh_dir()
         if initial_files:
             for path, value in initial_files.items():
-                if _is_lazy_provider(value):
+                entry_type = _entry_type(value)
+                if entry_type == "directory":
+                    node = self._ensure_dir(path, MkdirOptions(recursive=True))
+                    node.mode = int(_get_attr(value, "mode", node.mode))
+                    mtime = _get_attr(value, "mtime", None)
+                    if isinstance(mtime, datetime):
+                        node.mtime = mtime
+                elif entry_type == "symlink":
+                    self._insert_symlink(
+                        path,
+                        str(_get_attr(value, "target", "")),
+                        int(_get_attr(value, "mode", SYMLINK_MODE)),
+                        _get_attr(value, "mtime", None),
+                    )
+                elif entry_type == "file" and _get_attr(value, "lazy", None) is not None:
+                    self._insert_lazy(
+                        path,
+                        _get_attr(value, "lazy"),
+                        _get_attr(value, "mode", None),
+                        _get_attr(value, "mtime", None),
+                    )
+                elif entry_type == "file":
+                    self._insert_content(
+                        path,
+                        _get_attr(value, "content", b""),
+                        _get_attr(value, "mode", None),
+                        _get_attr(value, "mtime", None),
+                    )
+                elif _is_lazy_provider(value):
                     self._insert_lazy(path, value)
                 elif _is_init_obj(value):
                     self._insert_content(
                         path,
-                        value["content"],
-                        value.get("mode"),
-                        value.get("mtime"),
+                        _get_attr(value, "content", b""),
+                        _get_attr(value, "mode", None),
+                        _get_attr(value, "mtime", None),
                     )
                 else:
                     self._insert_content(path, value)
@@ -303,6 +345,24 @@ class InMemoryFs(FileSystem):
         parent_dir_node.children[file_name] = _VLazyNode(
             provider=provider,
             mode=mode or DEFAULT_FILE_MODE,
+            mtime=mtime or datetime.now(timezone.utc),
+        )
+
+    def _insert_symlink(
+        self,
+        path: str,
+        target: str,
+        mode: int | None = None,
+        mtime: datetime | None = None,
+    ) -> None:
+        """Insert or overwrite a symlink."""
+        norm = validate_path(path, "symlink")
+        parent_path = parent_dir(norm)
+        parent_dir_node = self._ensure_dir(parent_path, MkdirOptions(recursive=True))
+        file_name = norm[norm.rfind("/") + 1 :] if "/" in norm[1:] else norm[1:]
+        parent_dir_node.children[file_name] = _VSymlinkNode(
+            target=target,
+            mode=mode or SYMLINK_MODE,
             mtime=mtime or datetime.now(timezone.utc),
         )
 
@@ -458,7 +518,11 @@ class InMemoryFs(FileSystem):
 
     async def append_file(self, path: str, content: FileContent) -> None:
         norm = normalize_path(path)
-        located = self._locate(norm, follow_symlinks=False)
+        try:
+            located = self._locate(norm, follow_symlinks=False)
+        except FileNotFoundError:
+            self._insert_content(norm, content)
+            return
 
         if located.node.kind == "symlink":
             # Follow the symlink to the real file

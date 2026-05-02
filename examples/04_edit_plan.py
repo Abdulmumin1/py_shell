@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from py_shell import (
+from py_fs_shell import (
     StateReplaceEditInstruction,
     StateWriteEditInstruction,
     StateWriteJsonEditInstruction,

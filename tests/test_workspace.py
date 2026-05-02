@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import io
+import sys
 import tempfile
 from pathlib import Path
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from py_shell import SQLiteMetadataStore, workspace
-from py_shell.fs.interface import CpOptions, MkdirOptions, RmOptions
+from py_fs_shell import SQLiteMetadataStore, workspace
+from py_fs_shell.fs.interface import CpOptions, MkdirOptions, RmOptions
 
 
 class FakeS3Client:
@@ -79,8 +79,8 @@ async def run_tests():
 
         ws2 = await workspace.s3(bucket="bucket", prefix="runs/1", client=client)
         assert await ws2.read_file_bytes("/media/video.mp4") == b"video-bytes"
-        assert ("bucket", "runs/1/.py_shell/metadata.json") in client.objects
-        assert not Path(".py_shell_workspace/metadata.sqlite3").exists()
+        assert ("bucket", "runs/1/.py_fs_shell/metadata.json") in client.objects
+        assert not Path(".py_fs_shell_workspace/metadata.sqlite3").exists()
     await check("s3_workspace_is_fully_remote_by_default", t_s3_workspace_is_fully_remote_by_default)
 
     async def t_s3_workspace_allows_custom_metadata_store():

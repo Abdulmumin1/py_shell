@@ -1,7 +1,7 @@
-"""py_shell - A Python virtual filesystem with structured state backend."""
+"""py_fs_shell - A Python virtual filesystem with structured state backend."""
 
-from py_shell import workspace as workspace
-from py_shell.backend import (
+from py_fs_shell import workspace as workspace
+from py_fs_shell.backend import (
     StateAppliedEditResult,
     StateApplyEditsOptions,
     StateApplyEditsResult,
@@ -43,8 +43,8 @@ from py_shell.backend import (
     StateWriteEditInstruction,
     StateWriteJsonEditInstruction,
 )
-from py_shell.fs.in_memory import InMemoryFs
-from py_shell.fs.interface import (
+from py_fs_shell.fs.in_memory import InMemoryFs
+from py_fs_shell.fs.interface import (
     CpOptions,
     FileContent,
     FileInit,
@@ -58,9 +58,9 @@ from py_shell.fs.interface import (
     MkdirOptions,
     RmOptions,
 )
-from py_shell.local_fs import LocalFileSystem
-from py_shell.memory_backend import FileSystemStateBackend, create_memory_state_backend
-from py_shell.workspace import (
+from py_fs_shell.local_fs import LocalFileSystem
+from py_fs_shell.memory_backend import FileSystemStateBackend, create_memory_state_backend
+from py_fs_shell.workspace import (
     BlobStore,
     LocalBlobStore,
     MemoryBlobStore,

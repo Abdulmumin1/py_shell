@@ -4,7 +4,7 @@ Mirrors `@cloudflare/shell/prompt.ts` — provides type definitions
 and a system prompt that can be injected into agent instructions.
 
 Usage:
-    from py_shell.prompt import STATE_TYPES, STATE_SYSTEM_PROMPT
+    from py_fs_shell.prompt import STATE_TYPES, STATE_SYSTEM_PROMPT
 
     system = STATE_SYSTEM_PROMPT.replace("{{types}}", STATE_TYPES)
 """

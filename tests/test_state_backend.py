@@ -7,20 +7,17 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from py_shell.memory_backend import FileSystemStateBackend, create_memory_state_backend
-from py_shell.backend import (
-    StateFindOptions,
-    StateSearchOptions,
-    StateJsonWriteOptions,
-    StateJsonUpdateOperation,
-    StateHashOptions,
-    StateReplaceInFilesOptions,
-    StateWriteEditInstruction,
-    StateReplaceEditInstruction,
-    StateWriteJsonEditInstruction,
-    StateApplyEditsOptions,
+from py_fs_shell.backend import (
     StateEdit,
+    StateFindOptions,
+    StateHashOptions,
+    StateJsonUpdateOperation,
+    StateJsonWriteOptions,
+    StateReplaceEditInstruction,
+    StateSearchOptions,
+    StateWriteEditInstruction,
 )
+from py_fs_shell.memory_backend import create_memory_state_backend
 
 
 async def run_tests():

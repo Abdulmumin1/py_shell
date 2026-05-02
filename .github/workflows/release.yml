@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    environment: release
+    runs-on: ubuntu-latest
+    concurrency: release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [ -z "$(ls -A .semversioner/next-release/*.json 2>/dev/null)" ]; then
+            echo "No changesets found, skipping release."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Semversioner Release
+        if: steps.check_changes.outputs.has_changes == 'true'
+        id: semversioner
+        run: |
+          uv run semversioner release
+          uv run semversioner changelog > CHANGELOG.md
+
+          NEW_VERSION="$(uv run semversioner current-version)"
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+
+      - name: Validate
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          uv run ruff check tests examples
+          uv run pytest
+
+      - name: Commit and Push
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git add .
+          git commit -m "chore: release ${{ steps.semversioner.outputs.version }}"
+          git tag -a "v${{ steps.semversioner.outputs.version }}" -m "Release ${{ steps.semversioner.outputs.version }}"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.semversioner.outputs.version }}"
+          python -c "import re; version='$VERSION'; content=open('CHANGELOG.md').read(); match=re.search(r'## ' + re.escape(version) + r'\n(.*?)(?=\n## |\Z)', content, re.DOTALL); print(match.group(1).strip() if match else 'See CHANGELOG.md for details')" > release_notes.md
+          gh release create "v$VERSION" \
+            --title "py-shell@$VERSION" \
+            --notes-file release_notes.md \
+            --generate-notes
+
+      - name: Build
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: uv build
+
+      - name: Check package metadata
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: uv run twine check dist/*
+
+      - name: Publish to PyPI
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

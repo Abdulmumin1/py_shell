@@ -21,7 +21,7 @@ import traceback as tb_mod
 from collections.abc import Awaitable
 from typing import Any, Callable
 
-from py_shell.backend import (
+from py_fs_shell.backend import (
     StateAppliedEditResult,
     StateApplyEditsOptions,
     StateApplyEditsResult,
@@ -63,7 +63,7 @@ from py_shell.backend import (
     StateWriteEditInstruction,
     StateWriteJsonEditInstruction,
 )
-from py_shell.fs.interface import (
+from py_fs_shell.fs.interface import (
     FileContent,
     FileSystem,
     FileSystemDirent,
@@ -71,7 +71,7 @@ from py_shell.fs.interface import (
     MkdirOptions,
     RmOptions,
 )
-from py_shell.fs.path_utils import (
+from py_fs_shell.fs.path_utils import (
     join_path,
     normalize_path,
     parent_dir,
@@ -695,7 +695,7 @@ class FileSystemStateBackend(StateBackend):
         await self._fs.rm(path, opts)
 
     async def cp(self, src: str, dest: str, options: StateCopyOptions | None = None) -> None:
-        from py_shell.fs.interface import CpOptions as _CPOpts
+        from py_fs_shell.fs.interface import CpOptions as _CPOpts
 
         cp_opts = _CPOpts(recursive=(options.recursive if options else False))
         await self._fs.cp(src, dest, cp_opts)
@@ -923,7 +923,7 @@ class FileSystemStateBackend(StateBackend):
         await self._fs.rm(path, RmOptions(recursive=True, force=True))
 
     async def copy_tree(self, src: str, dest: str) -> None:
-        from py_shell.fs.interface import CpOptions as _CPOpts
+        from py_fs_shell.fs.interface import CpOptions as _CPOpts
         await self._fs.cp(src, dest, _CPOpts(recursive=True))
 
     async def move_tree(self, src: str, dest: str) -> None:
@@ -1119,7 +1119,7 @@ def create_memory_state_backend(
     Convenience factory that auto-creates the InMemoryFs and wraps it.
     Useful for testing and ephemeral agent state.
     """
-    from py_shell.fs.in_memory import InMemoryFs
+    from py_fs_shell.fs.in_memory import InMemoryFs
 
     normalized: dict[str, Any] = {}
     if initial_files:

@@ -1,12 +1,13 @@
-"""pytest fixtures for py_shell tests."""
+"""pytest fixtures for py_fs_shell tests."""
 
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
-from py_shell.fs.in_memory import InMemoryFs
-from py_shell.memory_backend import FileSystemStateBackend, create_memory_state_backend
+from py_fs_shell.fs.in_memory import InMemoryFs
+from py_fs_shell.memory_backend import FileSystemStateBackend, create_memory_state_backend
 
 
 @pytest.fixture

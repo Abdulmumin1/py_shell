@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 
-from py_shell import workspace
+from py_fs_shell import workspace
 
 
 async def main() -> None:
@@ -26,7 +26,7 @@ async def main() -> None:
 
     # S3 usage, if boto3 and credentials are configured.
     # Both metadata and blobs are remote by default:
-    # metadata -> s3://my-bucket/runs/123/.py_shell/metadata.json
+    # metadata -> s3://my-bucket/runs/123/.py_fs_shell/metadata.json
     # blobs    -> s3://my-bucket/runs/123/<sha256>
     # s3_ws = await workspace.s3(bucket="my-bucket", prefix="runs/123")
     # await s3_ws.write_file_bytes("/video.mp4", video_bytes)

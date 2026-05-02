@@ -1,0 +1,4 @@
+{
+  "type": "patch",
+  "description": "Initial release with filesystem abstractions, state backend helpers, workspace metadata/blob stores, S3-backed workspaces, examples, and tests."
+}

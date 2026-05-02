@@ -7,8 +7,8 @@ import sys
 
 sys.path.insert(0, "src")
 
-from py_shell.fs.in_memory import InMemoryFs
-from py_shell.fs.interface import MkdirOptions, RmOptions, CpOptions
+from py_fs_shell.fs.in_memory import InMemoryFs
+from py_fs_shell.fs.interface import CpOptions, MkdirOptions, RmOptions
 
 
 async def run_tests():
@@ -29,7 +29,7 @@ async def run_tests():
 
     # --- Read/Write ---
     print("=== Read/Write ===")
-    
+
     async def t1():
         fs = InMemoryFs()
         await fs.write_file("/foo.txt", "hello")
@@ -47,7 +47,7 @@ async def run_tests():
         fs = InMemoryFs()
         try:
             await fs.read_file("/nonexistent.txt")
-            assert False, "Should have raised"
+            raise AssertionError("Should have raised")
         except FileNotFoundError:
             pass
     await check("read_missing", t3)
@@ -61,7 +61,7 @@ async def run_tests():
 
     # --- Append ---
     print("\n=== Append ===")
-    
+
     async def t5():
         fs = InMemoryFs()
         await fs.write_file("/log.txt", "line1")
@@ -71,7 +71,7 @@ async def run_tests():
 
     # --- Exists ---
     print("\n=== Exists ===")
-    
+
     async def t6():
         fs = InMemoryFs({"/hello.txt": "Hello, World!"})
         assert await fs.exists("/hello.txt")
@@ -81,7 +81,7 @@ async def run_tests():
 
     # --- Stat ---
     print("\n=== Stat ===")
-    
+
     async def t7():
         fs = InMemoryFs({"/hello.txt": "Hello, World!"})
         st = await fs.stat("/hello.txt")
@@ -91,7 +91,7 @@ async def run_tests():
 
     # --- Mkdir ---
     print("\n=== Mkdir ===")
-    
+
     async def t8():
         fs = InMemoryFs()
         await fs.mkdir("/new_dir")
@@ -108,7 +108,7 @@ async def run_tests():
 
     # --- Readdir ---
     print("\n=== Readdir ===")
-    
+
     async def t10():
         fs = InMemoryFs({"/dir/nested.txt": "nested"})
         entries = await fs.readdir("/dir")
@@ -117,7 +117,7 @@ async def run_tests():
 
     # --- RM ---
     print("\n=== RM ===")
-    
+
     async def t11():
         fs = InMemoryFs({"/hello.txt": "hello"})
         await fs.rm("/hello.txt")
@@ -132,7 +132,7 @@ async def run_tests():
 
     # --- CP ---
     print("\n=== CP ===")
-    
+
     async def t13():
         fs = InMemoryFs({"/hello.txt": "Hello, World!"})
         await fs.cp("/hello.txt", "/hello_copy.txt")
@@ -147,7 +147,7 @@ async def run_tests():
 
     # --- MV ---
     print("\n=== MV ===")
-    
+
     async def t15():
         fs = InMemoryFs({"/hello.txt": "Hello, World!"})
         await fs.mv("/hello.txt", "/hello_moved.txt")
@@ -157,7 +157,7 @@ async def run_tests():
 
     # --- Symlinks ---
     print("\n=== Symlinks ===")
-    
+
     async def t16():
         fs = InMemoryFs()
         await fs.write_file("/target.txt", "target content")
@@ -181,7 +181,7 @@ async def run_tests():
 
     # --- Glob ---
     print("\n=== Glob ===")
-    
+
     async def t19():
         fs = InMemoryFs({
             "/a.txt": "a",
@@ -195,7 +195,7 @@ async def run_tests():
 
     # --- Constructor sync helpers ---
     print("\n=== Sync helpers ===")
-    
+
     async def t20():
         fs = InMemoryFs()
         fs.write_file_sync("/sync.txt", "sync content")

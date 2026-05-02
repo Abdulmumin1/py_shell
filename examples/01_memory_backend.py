@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from py_shell import StateFindOptions, create_memory_state_backend
+from py_fs_shell import StateFindOptions, create_memory_state_backend
 
 
 async def main() -> None:

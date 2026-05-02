@@ -6,7 +6,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from py_shell import FileSystemStateBackend, LocalFileSystem, StateMkdirOptions
+from py_fs_shell import FileSystemStateBackend, LocalFileSystem, StateMkdirOptions
 
 
 async def main() -> None:

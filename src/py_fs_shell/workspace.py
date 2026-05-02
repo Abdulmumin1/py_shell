@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from py_shell.fs.interface import (
+from py_fs_shell.fs.interface import (
     CpOptions,
     FileSystem,
     FileSystemDirent,
@@ -22,7 +22,7 @@ from py_shell.fs.interface import (
     MkdirOptions,
     RmOptions,
 )
-from py_shell.fs.path_utils import create_eisdir, create_enoent, create_enotdir, join_path, normalize_path, parent_dir, split_path
+from py_fs_shell.fs.path_utils import create_eisdir, create_enoent, create_enotdir, join_path, normalize_path, parent_dir, split_path
 
 
 @dataclass(frozen=True)
@@ -417,7 +417,7 @@ class Workspace:
         return WorkspaceFileSystem(self)
 
     def state(self):
-        from py_shell.memory_backend import FileSystemStateBackend
+        from py_fs_shell.memory_backend import FileSystemStateBackend
         return FileSystemStateBackend(self.fs())
 
     async def _ensure_parent(self, path: str) -> None:
@@ -682,7 +682,7 @@ async def s3(
     metadata_key: str | None = None,
 ) -> Workspace:
     clean_prefix = prefix.strip("/")
-    metadata_key = metadata_key or (f"{clean_prefix}/.py_shell/metadata.json" if clean_prefix else ".py_shell/metadata.json")
+    metadata_key = metadata_key or (f"{clean_prefix}/.py_fs_shell/metadata.json" if clean_prefix else ".py_fs_shell/metadata.json")
     return await Workspace(
         metadata or S3MetadataStore(bucket=bucket, key=metadata_key, client=client),
         S3BlobStore(bucket=bucket, prefix=clean_prefix, client=client),

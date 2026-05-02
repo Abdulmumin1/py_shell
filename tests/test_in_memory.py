@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import os
-from datetime import datetime, timezone
 
 import pytest
 
-from py_shell.fs.in_memory import InMemoryFs
-from py_shell.fs.interface import (
+from py_fs_shell.fs.in_memory import InMemoryFs
+from py_fs_shell.fs.interface import (
+    CpOptions,
     FileInit,
-    FsStat,
     MkdirOptions,
     RmOptions,
-    CpOptions,
 )
-
 
 # ── Basic file operations ─────────────────────────────────────────
 
@@ -116,7 +112,6 @@ class TestStat:
         await empty_fs.symlink("/target.txt", "/link.txt")
         st_l = await empty_fs.lstat("/link.txt")
         assert st_l.type == "symlink"
-        st_f = await sample_fs.stat("/link.txt")  # follows symlink
         # target doesn't exist, so stat would raise if we followed
 
 
@@ -270,7 +265,6 @@ class TestConstructor:
         assert await fs.read_file("/b.txt") == "b"
 
     async def test_init_with_file_init(self) -> None:
-        now = datetime.now(timezone.utc)
         fs = InMemoryFs({
             "/special.txt": FileInit(content="special", mode=0o700),
         })

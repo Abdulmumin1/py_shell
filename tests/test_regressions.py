@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import tempfile
 from pathlib import Path
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from py_shell import InMemoryFs, LocalFileSystem
+from py_fs_shell import InMemoryFs, LocalFileSystem
 
 
 async def run_tests():
