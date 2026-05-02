@@ -36,7 +36,9 @@ For local development from this repository:
 uv sync --extra dev --extra s3
 ```
 
-## Example
+## Examples
+
+In-memory workspace:
 
 ```python
 import asyncio
@@ -65,13 +67,41 @@ async def main():
 asyncio.run(main())
 ```
 
+Local workspace:
+
+```python
+import asyncio
+from pathlib import Path
+from py_fs_shell import workspace
+
+async def main():
+    ws = await workspace.local(Path(".py_fs_shell_workspace"))
+    state = ws.state()
+
+    await state.write_file("/notes/todo.md", "- ship release\n")
+    await state.write_json("/metadata.json", {"backend": "local"})
+
+    print(await state.read_file("/notes/todo.md"))
+
+asyncio.run(main())
+```
+
 S3-backed workspace:
 
 ```python
+import asyncio
 from py_fs_shell import workspace
 
-ws = await workspace.s3(bucket="my-bucket", prefix="runs/123")
-state = ws.state()
+async def main():
+    ws = await workspace.s3(bucket="my-bucket", prefix="runs/123")
+    state = ws.state()
+
+    await state.write_file("/outputs/result.txt", "done\n")
+    await state.write_json("/metadata.json", {"backend": "s3"})
+
+    print(await state.read_file("/outputs/result.txt"))
+
+asyncio.run(main())
 ```
 
 ## Releases
