@@ -5,12 +5,11 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import hashlib
-import io
 import json
 import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from py_fs_shell.fs.interface import (
@@ -22,7 +21,22 @@ from py_fs_shell.fs.interface import (
     MkdirOptions,
     RmOptions,
 )
-from py_fs_shell.fs.path_utils import create_eisdir, create_enoent, create_enotdir, join_path, normalize_path, parent_dir, split_path
+from py_fs_shell.fs.path_utils import (
+    create_eisdir,
+    create_enoent,
+    create_enotdir,
+    join_path,
+    normalize_path,
+    parent_dir,
+    split_path,
+)
+
+
+def _basename(norm: str, operation: str) -> str:
+    name = norm.rsplit("/", 1)[-1] if norm != "/" else ""
+    if not name:
+        raise create_eisdir(norm, operation)
+    return name
 
 
 @dataclass(frozen=True)
@@ -37,7 +51,7 @@ class WorkspaceEntry:
 
     def __post_init__(self) -> None:
         if self.mtime is None:
-            object.__setattr__(self, "mtime", datetime.now(timezone.utc))
+            object.__setattr__(self, "mtime", datetime.now(UTC))
 
 
 class MetadataStore(ABC):
@@ -434,14 +448,35 @@ class Workspace:
         if depth > 40:
             raise OSError(f"ELOOP: too many symbolic links: '{path}'")
         norm = normalize_path(path)
-        entry = await self.metadata.get(norm)
-        if entry is None:
+        if norm == "/":
+            entry = await self.metadata.get("/")
+            if entry is None:
+                raise create_enoent(path)
+            return "/", entry
+
+        current = "/"
+        segments = split_path(norm)
+        for index, segment in enumerate(segments):
+            candidate = join_path(current, segment)
+            entry = await self.metadata.get(candidate)
+            if entry is None:
+                raise create_enoent(path)
+
+            is_last = index == len(segments) - 1
+            if entry.type == "symlink" and (follow_final or not is_last):
+                target = entry.target or ""
+                resolved = normalize_path(target) if target.startswith("/") else join_path(parent_dir(candidate), target)
+                rest = segments[index + 1 :]
+                if rest:
+                    resolved = join_path(resolved, *rest)
+                return await self._resolve(resolved, follow_final=follow_final, depth=depth + 1)
+
+            current = candidate
+
+        final_entry = await self.metadata.get(current)
+        if final_entry is None:
             raise create_enoent(path)
-        if entry.type == "symlink" and follow_final:
-            target = entry.target or ""
-            resolved = normalize_path(target) if target.startswith("/") else join_path(parent_dir(norm), target)
-            return await self._resolve(resolved, True, depth + 1)
-        return norm, entry
+        return current, final_entry
 
     async def read_file_bytes(self, path: str) -> bytes:
         _, entry = await self._resolve(path)
@@ -533,6 +568,8 @@ class Workspace:
     async def rm(self, path: str, options: RmOptions | None = None) -> None:
         opts = options or RmOptions()
         norm = normalize_path(path)
+        if norm == "/":
+            raise PermissionError("rm: cannot remove root directory '/'")
         entry = await self.metadata.get(norm)
         if entry is None:
             if opts.force:
@@ -552,6 +589,7 @@ class Workspace:
         opts = options or CpOptions()
         src_norm, entry = await self._resolve(src, follow_final=False)
         dest_norm = normalize_path(dest)
+        _basename(dest_norm, "cp")
         if entry.type == "directory":
             if not opts.recursive:
                 raise IsADirectoryError(f"EISDIR: is a directory, cp '{src}'")
@@ -566,11 +604,13 @@ class Workspace:
         await self.metadata.put(replace(entry, path=dest_norm))
 
     async def mv(self, src: str, dest: str) -> None:
+        _basename(normalize_path(dest), "mv")
         await self.cp(src, dest, CpOptions(recursive=True))
         await self.rm(src, RmOptions(recursive=True, force=False))
 
     async def symlink(self, target: str, link_path: str) -> None:
         norm = normalize_path(link_path)
+        _basename(norm, "symlink")
         await self._ensure_parent(norm)
         await self.metadata.put(
             WorkspaceEntry(path=norm, type="symlink", size=len(target), mode=0o777, target=target)

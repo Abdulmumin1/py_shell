@@ -19,7 +19,9 @@ import re
 import tarfile
 import traceback as tb_mod
 from collections.abc import Awaitable
-from typing import Any, Callable
+from contextlib import suppress
+from datetime import datetime
+from typing import Any
 
 from py_fs_shell.backend import (
     StateAppliedEditResult,
@@ -66,8 +68,6 @@ from py_fs_shell.backend import (
 from py_fs_shell.fs.interface import (
     FileContent,
     FileSystem,
-    FileSystemDirent,
-    FsStat,
     MkdirOptions,
     RmOptions,
 )
@@ -75,9 +75,7 @@ from py_fs_shell.fs.path_utils import (
     join_path,
     normalize_path,
     parent_dir,
-    split_path,
 )
-
 
 # ── JSON Pointer helpers ─────────────────────────────────────────────
 
@@ -127,8 +125,8 @@ def _json_pointer_set(obj: Any, pointer: str, value: Any) -> Any:
         elif isinstance(current, list):
             try:
                 idx = int(part)
-            except ValueError:
-                raise ValueError(f"Cannot use key '{part}' on list")
+            except ValueError as exc:
+                raise ValueError(f"Cannot use key '{part}' on list") from exc
             if is_last:
                 if 0 <= idx <= len(current):
                     if idx == len(current):
@@ -172,8 +170,8 @@ def _json_pointer_delete(obj: Any, pointer: str) -> Any:
         elif isinstance(current, list):
             try:
                 idx = int(part)
-            except ValueError:
-                raise ValueError(f"Cannot use key '{part}' on list")
+            except ValueError as exc:
+                raise ValueError(f"Cannot use key '{part}' on list") from exc
             if is_last:
                 if not (0 <= idx < len(current)):
                     raise IndexError(f"Index {idx} out of range")
@@ -205,6 +203,14 @@ def _unified_diff(a: str, b: str, a_path: str = "a/file", b_path: str = "b/file"
     return "".join(diff)
 
 
+def _archive_destination_path(destination: str, member_name: str) -> str:
+    base = normalize_path(destination)
+    dest = join_path(base, member_name.lstrip("/"))
+    if dest != base and not dest.startswith(base.rstrip("/") + "/"):
+        raise ValueError(f"archive entry escapes destination: {member_name!r}")
+    return dest
+
+
 # ── Search helpers ───────────────────────────────────────────────────
 
 def _search_text(
@@ -232,12 +238,11 @@ def _search_text(
         if opts.regex:
             for m in pattern.finditer(line):
                 match_str = m.group(0)
-                if opts.whole_word:
-                    if not (
-                        (m.start() == 0 or not search_line[m.start() - 1].isalnum())
-                        and (m.end() == len(line) or not search_line[m.end()].isalnum())
-                    ):
-                        continue
+                if opts.whole_word and not (
+                    (m.start() == 0 or not search_line[m.start() - 1].isalnum())
+                    and (m.end() == len(line) or not search_line[m.end()].isalnum())
+                ):
+                    continue
                 before = lines[max(0, line_idx - 1 - opts.context_before):line_idx - 1]
                 after = lines[line_idx:min(len(lines), line_idx + opts.context_after)]
                 matches.append(StateTextMatch(
@@ -254,13 +259,12 @@ def _search_text(
                 pos = search_line.find(search_text, start)
                 if pos == -1:
                     break
-                if opts.whole_word:
-                    if not (
-                        (pos == 0 or not search_line[pos - 1].isalnum())
-                        and (pos + len(search_text) == len(line) or not search_line[pos + len(search_text)].isalnum())
-                    ):
-                        start = pos + 1
-                        continue
+                if opts.whole_word and not (
+                    (pos == 0 or not search_line[pos - 1].isalnum())
+                    and (pos + len(search_text) == len(line) or not search_line[pos + len(search_text)].isalnum())
+                ):
+                    start = pos + 1
+                    continue
                 before = lines[max(0, line_idx - 1 - opts.context_before):line_idx - 1]
                 after = lines[line_idx:min(len(lines), line_idx + opts.context_after)]
                 matches.append(StateTextMatch(
@@ -281,6 +285,13 @@ def _search_text(
     return matches
 
 
+def _is_whole_word_match(content: str, start: int, end: int) -> bool:
+    return (
+        (start == 0 or not content[start - 1].isalnum())
+        and (end == len(content) or not content[end].isalnum())
+    )
+
+
 def _replace_text(
     content: str,
     search: str,
@@ -289,36 +300,28 @@ def _replace_text(
 ) -> tuple[int, str]:
     """Replace text in content. Returns (count, new_content)."""
     opts = options or StateSearchOptions()
+    if search == "":
+        raise ValueError("search string must not be empty")
+
+    flags = 0 if opts.case_sensitive else re.IGNORECASE
+    pattern_text = search if opts.regex else re.escape(search)
+    try:
+        pattern = re.compile(pattern_text, flags)
+    except re.error as exc:
+        raise ValueError(f"Invalid regex: {exc}") from exc
+
     count = 0
 
-    if opts.regex:
-        flags = 0 if opts.case_sensitive else re.IGNORECASE
-        pattern = re.compile(search, flags)
-        new_content, count = pattern.subn(replacement, content)
-    else:
-        if opts.case_sensitive:
-            new_content = content.replace(search, replacement)
-            count = content.count(search)
-        else:
-            # Case-insensitive non-regex: tricky, do per line
-            lines = content.splitlines(keepends=True)
-            new_lines = []
-            for line in lines:
-                search_lower = search.lower()
-                line_lower = line.lower()
-                new_line = line
-                offset = 0
-                while True:
-                    pos = line_lower.find(search_lower, offset)
-                    if pos == -1:
-                        break
-                    orig = new_line[pos:pos + len(search)]
-                    new_line = new_line[:pos] + replacement + new_line[pos + len(search):]
-                    line_lower = new_line.lower()
-                    offset = pos + len(replacement)
-                    count += 1
-                new_lines.append(new_line)
-            new_content = "".join(new_lines)
+    def replace_match(match: re.Match[str]) -> str:
+        nonlocal count
+        if opts.whole_word and not _is_whole_word_match(match.string, match.start(), match.end()):
+            return match.group(0)
+        count += 1
+        if opts.regex:
+            return match.expand(replacement)
+        return replacement
+
+    new_content = pattern.sub(replace_match, content)
 
     return count, new_content
 
@@ -466,6 +469,21 @@ class FileSystemStateBackend(StateBackend):
         results: list[StateFindEntry] = []
         norm = normalize_path(path)
 
+        def _to_datetime(value: str | datetime | None) -> datetime | None:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value
+            return datetime.fromisoformat(value)
+
+        mtime_after = _to_datetime(opts.mtime_after)
+        mtime_before = _to_datetime(opts.mtime_before)
+
+        async def _is_empty_entry(current_path: str, st: StateStat) -> bool:
+            if st.type == "directory":
+                return len(await self.readdir(current_path)) == 0
+            return st.size == 0
+
         async def _walk(current_path: str, depth: int) -> None:
             st = await self.stat(current_path)
             if st is None:
@@ -491,7 +509,28 @@ class FileSystemStateBackend(StateBackend):
                     import fnmatch as _fnmatch
                     match_name = _fnmatch.fnmatch(name, opts.name)
 
-                if match_type and match_name:
+                match_path = True
+                if opts.path_pattern:
+                    import fnmatch as _fnmatch
+                    match_path = _fnmatch.fnmatch(current_path, opts.path_pattern)
+
+                match_empty = True
+                if opts.empty is not None:
+                    match_empty = (await _is_empty_entry(current_path, st)) is opts.empty
+
+                match_size = True
+                if opts.size_min is not None and st.size < opts.size_min:
+                    match_size = False
+                if opts.size_max is not None and st.size > opts.size_max:
+                    match_size = False
+
+                match_mtime = True
+                if mtime_after is not None and st.mtime < mtime_after:
+                    match_mtime = False
+                if mtime_before is not None and st.mtime > mtime_before:
+                    match_mtime = False
+
+                if match_type and match_name and match_path and match_empty and match_size and match_mtime:
                     results.append(StateFindEntry(
                         path=current_path,
                         name=name,
@@ -652,7 +691,7 @@ class FileSystemStateBackend(StateBackend):
                         continue
                     content = await self._fs.read_file(path)
                     originals[path] = content
-                    count, new_content = _replace_text(content, search, replacement)
+                    count, new_content = _replace_text(content, search, replacement, opts)
                     if count == 0:
                         continue
                     diff = _unified_diff(content, new_content)
@@ -672,10 +711,8 @@ class FileSystemStateBackend(StateBackend):
         except Exception:
             if opts.rollback_on_error and not opts.dry_run and modified:
                 for p in modified:
-                    try:
+                    with suppress(FileNotFoundError):
                         await self._fs.write_file(p, originals[p])
-                    except FileNotFoundError:
-                        pass
             raise
 
         return StateReplaceInFilesResult(
@@ -715,7 +752,7 @@ class FileSystemStateBackend(StateBackend):
     async def resolve_path(self, base: str, path: str) -> str:
         # Try the FileSystem method first
         if hasattr(self._fs, "resolve_path"):
-            method = getattr(self._fs, "resolve_path")
+            method = self._fs.resolve_path
             if callable(method):
                 result = method(base, path)
                 if isinstance(result, Awaitable):
@@ -812,7 +849,7 @@ class FileSystemStateBackend(StateBackend):
 
         with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as tar:
             for member in tar.getmembers():
-                dest = join_path(destination, member.name)
+                dest = _archive_destination_path(destination, member.name)
                 if member.isdir():
                     await self.mkdir(dest, StateMkdirOptions(recursive=True))
                     entries.append(StateArchiveEntry(
@@ -1004,10 +1041,10 @@ class FileSystemStateBackend(StateBackend):
         opts = options or StateApplyEditsOptions()
         results: list[StateAppliedEditResult] = []
         total_changed = 0
-        modified: dict[str, str] = {}
+        modified: dict[str, tuple[bool, str]] = {}
 
         try:
-            for i, edit in enumerate(plan.edits):
+            for edit in plan.edits:
                 if not edit.changed:
                     results.append(StateAppliedEditResult(
                         path=edit.path,
@@ -1020,9 +1057,9 @@ class FileSystemStateBackend(StateBackend):
                 # Save original for rollback
                 if opts.rollback_on_error and edit.path not in modified:
                     try:
-                        modified[edit.path] = await self._fs.read_file(edit.path)
+                        modified[edit.path] = (True, await self._fs.read_file(edit.path))
                     except FileNotFoundError:
-                        modified[edit.path] = ""
+                        modified[edit.path] = (False, "")
 
                 if not opts.dry_run:
                     await self._fs.write_file(edit.path, edit.content)
@@ -1038,15 +1075,17 @@ class FileSystemStateBackend(StateBackend):
         except Exception:
             if opts.rollback_on_error and not opts.dry_run:
                 for path, orig in modified.items():
-                    try:
-                        await self._fs.write_file(path, orig)
-                    except FileNotFoundError:
-                        pass
+                    existed, content = orig
+                    if existed:
+                        with suppress(FileNotFoundError):
+                            await self._fs.write_file(path, content)
+                    else:
+                        await self._fs.rm(path, RmOptions(force=True))
             raise StateBatchOperationError(
                 operation="apply_edit_plan",
                 message=str(tb_mod.format_exc()),
                 rolled_back=opts.rollback_on_error,
-            )
+            ) from None
 
         return StateApplyEditsResult(
             dry_run=opts.dry_run,
@@ -1062,18 +1101,18 @@ class FileSystemStateBackend(StateBackend):
         opts = options or StateApplyEditsOptions()
         results: list[StateAppliedEditResult] = []
         total_changed = 0
-        modified: dict[str, str] = {}
+        modified: dict[str, tuple[bool, str]] = {}
 
         try:
             for edit in edits:
                 # Save original
                 if opts.rollback_on_error and edit.path not in modified:
                     try:
-                        modified[edit.path] = await self._fs.read_file(edit.path)
+                        modified[edit.path] = (True, await self._fs.read_file(edit.path))
                     except FileNotFoundError:
-                        modified[edit.path] = ""
+                        modified[edit.path] = (False, "")
 
-                old_content = modified.get(edit.path, "")
+                old_content = modified.get(edit.path, (False, ""))[1]
                 changed = old_content != edit.content
                 diff = _unified_diff(old_content, edit.content) if changed else ""
 
@@ -1092,15 +1131,17 @@ class FileSystemStateBackend(StateBackend):
         except Exception:
             if opts.rollback_on_error and not opts.dry_run:
                 for path, orig in modified.items():
-                    try:
-                        await self._fs.write_file(path, orig)
-                    except FileNotFoundError:
-                        pass
+                    existed, content = orig
+                    if existed:
+                        with suppress(FileNotFoundError):
+                            await self._fs.write_file(path, content)
+                    else:
+                        await self._fs.rm(path, RmOptions(force=True))
             raise StateBatchOperationError(
                 operation="apply_edits",
                 message=str(tb_mod.format_exc()),
                 rolled_back=opts.rollback_on_error,
-            )
+            ) from None
 
         return StateApplyEditsResult(
             dry_run=opts.dry_run,
