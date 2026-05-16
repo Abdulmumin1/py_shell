@@ -86,6 +86,15 @@ async def main():
 asyncio.run(main())
 ```
 
+To reclaim orphaned blobs left behind by older workspace versions, run:
+
+```python
+result = await ws.garbage_collect_blobs()
+print(result.deleted, result.deleted_keys)
+```
+
+Current versions also clean up unreferenced blobs automatically on file overwrite/delete.
+
 S3-backed workspace:
 
 ```python
