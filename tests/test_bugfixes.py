@@ -57,6 +57,34 @@ async def test_workspace_protects_root_from_recursive_rm_and_symlink() -> None:
 
 
 @pytest.mark.asyncio
+async def test_workspace_cleans_up_unreferenced_blobs_on_overwrite_and_delete() -> None:
+    ws = await workspace.memory()
+    await ws.write_file("/a.txt", "same")
+    await ws.write_file("/b.txt", "same")
+    assert len(await ws.blobs.list_keys()) == 1
+
+    await ws.write_file("/a.txt", "new")
+    assert len(await ws.blobs.list_keys()) == 2
+
+    await ws.rm("/b.txt")
+    assert len(await ws.blobs.list_keys()) == 1
+    assert await ws.read_file("/a.txt") == "new"
+
+
+@pytest.mark.asyncio
+async def test_workspace_garbage_collect_blobs_sweeps_orphans() -> None:
+    ws = await workspace.memory()
+    orphan_key = await ws.blobs.put(b"orphan")
+    await ws.write_file("/kept.txt", "kept")
+
+    result = await ws.garbage_collect_blobs()
+
+    assert result.deleted == 1
+    assert orphan_key in result.deleted_keys
+    assert orphan_key not in await ws.blobs.list_keys()
+
+
+@pytest.mark.asyncio
 async def test_replace_in_files_respects_case_sensitive_option() -> None:
     backend = create_memory_state_backend({"/a.txt": "Hello hello"})
 

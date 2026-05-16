@@ -33,6 +33,18 @@ class FakeS3Client:
         self.objects.pop((Bucket, Key), None)
         return {}
 
+    def list_objects_v2(self, Bucket: str, Prefix: str = "", ContinuationToken: str | None = None):
+        del ContinuationToken
+        contents = [
+            {"Key": key}
+            for bucket, key in sorted(self.objects)
+            if bucket == Bucket and key.startswith(Prefix)
+        ]
+        return {
+            "Contents": contents,
+            "IsTruncated": False,
+        }
+
 
 async def run_tests():
     passed = 0
@@ -113,6 +125,46 @@ async def run_tests():
         assert await ws.read_file("/dir/link.txt") == "ok"
         assert await ws.readlink("/dir/link.txt") == "target.txt"
     await check("symlink", t_symlink)
+
+    async def t_blob_cleanup_on_overwrite_and_delete():
+        ws = await workspace.memory()
+        await ws.write_file("/a.txt", "same")
+        await ws.write_file("/b.txt", "same")
+        assert len(await ws.blobs.list_keys()) == 1
+
+        await ws.write_file("/a.txt", "new")
+        assert len(await ws.blobs.list_keys()) == 2
+
+        await ws.rm("/b.txt")
+        blob_keys = await ws.blobs.list_keys()
+        assert len(blob_keys) == 1
+        assert await ws.read_file("/a.txt") == "new"
+    await check("blob_cleanup_on_overwrite_and_delete", t_blob_cleanup_on_overwrite_and_delete)
+
+    async def t_blob_garbage_collect_sweeps_orphans():
+        ws = await workspace.memory()
+        orphan_key = await ws.blobs.put(b"orphan")
+        await ws.write_file("/kept.txt", "kept")
+
+        result = await ws.garbage_collect_blobs()
+
+        assert orphan_key in result.deleted_keys
+        assert result.deleted == 1
+        assert orphan_key not in await ws.blobs.list_keys()
+    await check("blob_garbage_collect_sweeps_orphans", t_blob_garbage_collect_sweeps_orphans)
+
+    async def t_s3_blob_garbage_collect_sweeps_orphans():
+        client = FakeS3Client()
+        ws = await workspace.s3(bucket="bucket", prefix="runs/3", client=client)
+        orphan_key = await ws.blobs.put(b"orphan")
+        await ws.write_file("/kept.txt", "kept")
+
+        result = await ws.garbage_collect_blobs()
+
+        assert orphan_key in result.deleted_keys
+        assert ("bucket", f"runs/3/{orphan_key}") not in client.objects
+        assert ("bucket", "runs/3/.py_fs_shell/metadata.json") in client.objects
+    await check("s3_blob_garbage_collect_sweeps_orphans", t_s3_blob_garbage_collect_sweeps_orphans)
 
     print("\n" + "=" * 50)
     print(f"Results: {passed} passed, {failed} failed")

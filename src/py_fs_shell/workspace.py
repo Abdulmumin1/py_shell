@@ -6,6 +6,7 @@ import asyncio
 import fnmatch
 import hashlib
 import json
+import re
 import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
@@ -39,6 +40,9 @@ def _basename(norm: str, operation: str) -> str:
     return name
 
 
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
 @dataclass(frozen=True)
 class WorkspaceEntry:
     path: str
@@ -52,6 +56,14 @@ class WorkspaceEntry:
     def __post_init__(self) -> None:
         if self.mtime is None:
             object.__setattr__(self, "mtime", datetime.now(UTC))
+
+
+@dataclass(frozen=True)
+class WorkspaceBlobGcResult:
+    scanned: int
+    deleted: int
+    live: int
+    deleted_keys: list[str]
 
 
 class MetadataStore(ABC):
@@ -80,6 +92,9 @@ class BlobStore(ABC):
 
     @abstractmethod
     async def delete(self, key: str) -> None: ...
+
+    async def list_keys(self) -> list[str]:
+        raise NotImplementedError("blob store does not support key listing")
 
 
 class MemoryMetadataStore(MetadataStore):
@@ -245,6 +260,9 @@ class MemoryBlobStore(BlobStore):
     async def delete(self, key: str) -> None:
         self._blobs.pop(key, None)
 
+    async def list_keys(self) -> list[str]:
+        return sorted(self._blobs)
+
 
 class LocalBlobStore(BlobStore):
     def __init__(self, root: str | Path) -> None:
@@ -272,6 +290,22 @@ class LocalBlobStore(BlobStore):
         path = self._path(key)
         if path.exists():
             await asyncio.to_thread(path.unlink)
+
+    async def list_keys(self) -> list[str]:
+        def run() -> list[str]:
+            keys: list[str] = []
+            for path in self.root.rglob("*"):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(self.root)
+                if len(rel.parts) != 2:
+                    continue
+                key = rel.parts[0] + rel.parts[1]
+                if _SHA256_HEX_RE.fullmatch(key):
+                    keys.append(key)
+            return sorted(keys)
+
+        return await asyncio.to_thread(run)
 
 
 class S3MetadataStore(MetadataStore):
@@ -416,6 +450,41 @@ class S3BlobStore(BlobStore):
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self.client.delete_object, Bucket=self.bucket, Key=self._key(key))
 
+    async def list_keys(self) -> list[str]:
+        prefix = f"{self.prefix}/" if self.prefix else ""
+
+        def run() -> list[str]:
+            keys: list[str] = []
+            continuation_token: str | None = None
+
+            while True:
+                params: dict[str, object] = {
+                    "Bucket": self.bucket,
+                    "Prefix": prefix,
+                }
+                if continuation_token is not None:
+                    params["ContinuationToken"] = continuation_token
+
+                response = self.client.list_objects_v2(**params)
+                for item in response.get("Contents", []):
+                    object_key = item.get("Key")
+                    if not isinstance(object_key, str):
+                        continue
+                    relative = object_key[len(prefix) :] if prefix and object_key.startswith(prefix) else object_key
+                    if _SHA256_HEX_RE.fullmatch(relative):
+                        keys.append(relative)
+
+                if not response.get("IsTruncated"):
+                    break
+                token = response.get("NextContinuationToken")
+                continuation_token = token if isinstance(token, str) else None
+                if continuation_token is None:
+                    break
+
+            return sorted(set(keys))
+
+        return await asyncio.to_thread(run)
+
 
 class Workspace:
     def __init__(self, metadata: MetadataStore, blobs: BlobStore) -> None:
@@ -433,6 +502,39 @@ class Workspace:
     def state(self):
         from py_fs_shell.memory_backend import FileSystemStateBackend
         return FileSystemStateBackend(self.fs())
+
+    async def _live_blob_keys(self) -> set[str]:
+        return {
+            entry.blob_key
+            for entry in await self.metadata.list_all()
+            if entry.type == "file" and entry.blob_key is not None
+        }
+
+    async def _delete_unreferenced_blob_keys(self, candidate_keys: set[str]) -> list[str]:
+        live_keys = await self._live_blob_keys()
+        deleted: list[str] = []
+        for key in sorted(candidate_keys - live_keys):
+            await self.blobs.delete(key)
+            deleted.append(key)
+        return deleted
+
+    async def garbage_collect_blobs(self) -> WorkspaceBlobGcResult:
+        live_keys = await self._live_blob_keys()
+        blob_keys = await self.blobs.list_keys()
+        deleted_keys: list[str] = []
+
+        for key in blob_keys:
+            if key in live_keys:
+                continue
+            await self.blobs.delete(key)
+            deleted_keys.append(key)
+
+        return WorkspaceBlobGcResult(
+            scanned=len(blob_keys),
+            deleted=len(deleted_keys),
+            live=len(live_keys),
+            deleted_keys=deleted_keys,
+        )
 
     async def _ensure_parent(self, path: str) -> None:
         parent = parent_dir(path)
@@ -494,6 +596,7 @@ class Workspace:
         if norm == "/":
             raise create_eisdir(path, "writeFile")
         await self._ensure_parent(norm)
+        previous = await self.metadata.get(norm)
         key = await self.blobs.put(content)
         await self.metadata.put(
             WorkspaceEntry(
@@ -504,6 +607,8 @@ class Workspace:
                 blob_key=key,
             )
         )
+        if previous is not None and previous.type == "file" and previous.blob_key is not None and previous.blob_key != key:
+            await self._delete_unreferenced_blob_keys({previous.blob_key})
 
     async def write_file(self, path: str, content: str) -> None:
         await self.write_file_bytes(path, content.encode("utf-8"))
@@ -579,11 +684,20 @@ class Workspace:
             children = await self.metadata.list_children(norm)
             if children and not opts.recursive:
                 raise IsADirectoryError(f"EISDIR: is a directory, rm '{path}'")
+            candidate_blob_keys = {
+                child.blob_key
+                for child in await self.metadata.list_all()
+                if child.path == norm or child.path.startswith(norm.rstrip("/") + "/")
+                if child.type == "file" and child.blob_key is not None
+            }
             for child in list(await self.metadata.list_all()):
                 if child.path == norm or child.path.startswith(norm.rstrip("/") + "/"):
                     await self.metadata.delete(child.path)
+            await self._delete_unreferenced_blob_keys(candidate_blob_keys)
             return
+        candidate_blob_keys = {entry.blob_key} if entry.type == "file" and entry.blob_key is not None else set()
         await self.metadata.delete(norm)
+        await self._delete_unreferenced_blob_keys(candidate_blob_keys)
 
     async def cp(self, src: str, dest: str, options: CpOptions | None = None) -> None:
         opts = options or CpOptions()
