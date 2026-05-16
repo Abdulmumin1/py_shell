@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from collections.abc import Awaitable
-from typing import Callable, Literal, TypeAlias, Union
+from datetime import UTC, datetime
+from typing import Literal, TypeAlias
 
 # ── Types ────────────────────────────────────────────────────────────
 
@@ -15,7 +15,7 @@ BufferEncoding: TypeAlias = Literal[
     "utf8", "utf-8", "ascii", "binary", "base64", "hex", "latin1"
 ]
 
-FileContent: TypeAlias = Union[str, bytes]
+FileContent: TypeAlias = str | bytes
 
 
 # ── Stat / Dirent ────────────────────────────────────────────────────
@@ -63,14 +63,14 @@ class FileEntry:
     type: Literal["file"]
     content: FileContent
     mode: int = 0o644
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
 class DirectoryEntry:
     type: Literal["directory"]
     mode: int = 0o755
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -78,7 +78,7 @@ class SymlinkEntry:
     type: Literal["symlink"]
     target: str
     mode: int = 0o777
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -86,10 +86,10 @@ class LazyFileEntry:
     type: Literal["file"]
     lazy: Callable[[], FileContent | Awaitable[FileContent]]
     mode: int = 0o644
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
-FsEntry: TypeAlias = Union[FileEntry, LazyFileEntry, DirectoryEntry, SymlinkEntry]
+FsEntry: TypeAlias = FileEntry | LazyFileEntry | DirectoryEntry | SymlinkEntry
 
 
 @dataclass
