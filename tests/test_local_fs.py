@@ -5,6 +5,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from py_fs_shell.fs.interface import MkdirOptions
@@ -95,6 +97,26 @@ async def run_tests():
             await fs.append_file("/log.txt", "\nline2")
             assert await fs.read_file("/log.txt") == "line1\nline2"
     await check("append", t_append)
+
+    async def t_write_via_inside_symlink_stays_inside_root():
+        with tempfile.TemporaryDirectory() as tmp:
+            fs = LocalFileSystem(tmp)
+            await fs.write_file("/target.txt", "before")
+            await fs.symlink("target.txt", "/link.txt")
+            await fs.write_file("/link.txt", "after")
+            assert await fs.read_file("/target.txt") == "after"
+    await check("write_via_inside_symlink_stays_inside_root", t_write_via_inside_symlink_stays_inside_root)
+
+    async def t_write_via_escape_symlink_denied():
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            secret = Path(outside) / "secret.txt"
+            secret.write_text("secret")
+            fs = LocalFileSystem(tmp)
+            await fs.symlink(str(secret), "/escape.txt")
+            with pytest.raises(PermissionError):
+                await fs.write_file("/escape.txt", "owned")
+            assert secret.read_text() == "secret"
+    await check("write_via_escape_symlink_denied", t_write_via_escape_symlink_denied)
 
     async def t_stat():
         with tempfile.TemporaryDirectory() as tmp:
