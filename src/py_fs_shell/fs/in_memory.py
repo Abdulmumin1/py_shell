@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from py_fs_shell.fs.interface import (
     CpOptions,
@@ -25,10 +26,10 @@ from py_fs_shell.fs.path_utils import (
     DEFAULT_FILE_MODE,
     MAX_SYMLINK_DEPTH,
     SYMLINK_MODE,
+    create_eexist,
     create_eisdir,
     create_eloop,
     create_enoent,
-    create_eexist,
     create_enotdir,
     join_path,
     normalize_path,
@@ -52,7 +53,7 @@ class _VFileNode:
     kind: str = "file"
     content: bytes = field(default_factory=bytes)
     mode: int = DEFAULT_FILE_MODE
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -60,7 +61,7 @@ class _VLazyNode:
     kind: str = "lazy"
     provider: Callable[[], FileContent | Awaitable[FileContent]] = field(default=lambda: b"")
     mode: int = DEFAULT_FILE_MODE
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -68,7 +69,7 @@ class _VDirNode:
     kind: str = "dir"
     children: dict[str, _VNode] = field(default_factory=dict)
     mode: int = DEFAULT_DIR_MODE
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -76,7 +77,7 @@ class _VSymlinkNode:
     kind: str = "symlink"
     target: str = ""
     mode: int = SYMLINK_MODE
-    mtime: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    mtime: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 _VNode = _VFileNode | _VLazyNode | _VDirNode | _VSymlinkNode
@@ -96,6 +97,13 @@ _UTF8 = "utf-8"
 
 def _fresh_dir() -> _VDirNode:
     return _VDirNode()
+
+
+def _basename(norm: str, operation: str) -> str:
+    name = norm[norm.rfind("/") + 1 :] if "/" in norm[1:] else norm[1:]
+    if not name:
+        raise create_eisdir(norm, operation)
+    return name
 
 
 def _kind_to_type(node: _VNode) -> FileSystemEntryType:
@@ -295,12 +303,7 @@ class InMemoryFs(FileSystem):
                 raise create_eexist(path)
             else:
                 # Intermediate exists but is not a dir
-                if options and options.recursive:
-                    new_dir = _fresh_dir()
-                    current.children[seg] = new_dir
-                    current = new_dir
-                else:
-                    raise create_enotdir(join_path(*segs[: i + 1]))
+                raise create_enotdir(join_path(*segs[: i + 1]))
 
         return current
 
@@ -318,14 +321,12 @@ class InMemoryFs(FileSystem):
         # Ensure parent directory exists
         parent_dir_node = self._ensure_dir(parent_path, MkdirOptions(recursive=True))
 
-        file_name = norm[norm.rfind("/") + 1 :] if "/" in norm[1:] else norm[1:]
-        if not file_name:
-            raise create_eisdir(path, "writeFile")
+        file_name = _basename(norm, "writeFile")
 
         parent_dir_node.children[file_name] = _VFileNode(
             content=_to_bytes(content),
             mode=mode or DEFAULT_FILE_MODE,
-            mtime=mtime or datetime.now(timezone.utc),
+            mtime=mtime or datetime.now(UTC),
         )
 
     def _insert_lazy(
@@ -340,12 +341,12 @@ class InMemoryFs(FileSystem):
         parent_path = parent_dir(norm)
 
         parent_dir_node = self._ensure_dir(parent_path, MkdirOptions(recursive=True))
-        file_name = norm[norm.rfind("/") + 1 :] if "/" in norm[1:] else norm[1:]
+        file_name = _basename(norm, "writeFile")
 
         parent_dir_node.children[file_name] = _VLazyNode(
             provider=provider,
             mode=mode or DEFAULT_FILE_MODE,
-            mtime=mtime or datetime.now(timezone.utc),
+            mtime=mtime or datetime.now(UTC),
         )
 
     def _insert_symlink(
@@ -359,11 +360,11 @@ class InMemoryFs(FileSystem):
         norm = validate_path(path, "symlink")
         parent_path = parent_dir(norm)
         parent_dir_node = self._ensure_dir(parent_path, MkdirOptions(recursive=True))
-        file_name = norm[norm.rfind("/") + 1 :] if "/" in norm[1:] else norm[1:]
+        file_name = _basename(norm, "symlink")
         parent_dir_node.children[file_name] = _VSymlinkNode(
             target=target,
             mode=mode or SYMLINK_MODE,
-            mtime=mtime or datetime.now(timezone.utc),
+            mtime=mtime or datetime.now(UTC),
         )
 
     async def _resolve_lazy(self, node: _VNode, path: str) -> _VNode:
@@ -471,10 +472,6 @@ class InMemoryFs(FileSystem):
                     current = child
                 elif last:
                     raise create_eexist(path)
-                elif opts.recursive:
-                    new_dir = _fresh_dir()
-                    current.children[seg] = new_dir
-                    current = new_dir
                 else:
                     raise create_enotdir(path)
             elif last:
@@ -539,7 +536,7 @@ class InMemoryFs(FileSystem):
         located.parent.children[located.key] = _VFileNode(
             content=new_content,
             mode=located.node.mode,
-            mtime=datetime.now(timezone.utc),
+            mtime=datetime.now(UTC),
         )
 
     async def exists(self, path: str) -> bool:
@@ -614,7 +611,7 @@ class InMemoryFs(FileSystem):
         parent = parent_dir(dest_norm)
         self._ensure_dir(parent, MkdirOptions(recursive=True))
 
-        file_name = dest_norm[dest_norm.rfind("/") + 1 :] if "/" in dest_norm[1:] else dest_norm[1:]
+        file_name = _basename(dest_norm, "cp")
         dest_parent = self._locate(parent, follow_symlinks=False)
         if dest_parent.node.kind != "dir":
             raise create_enotdir(dest)
@@ -649,21 +646,21 @@ class InMemoryFs(FileSystem):
         dest_parent_path = parent_dir(dest_norm)
         dest_parent = self._ensure_dir(dest_parent_path, MkdirOptions(recursive=True))
 
-        dest_name = dest_norm[dest_norm.rfind("/") + 1 :] if "/" in dest_norm[1:] else dest_norm[1:]
+        dest_name = _basename(dest_norm, "mv")
 
         # Move the node
         dest_parent.children[dest_name] = src_located.node
         del src_located.parent.children[src_located.key]
 
         # Update mtime
-        src_located.node.mtime = datetime.now(timezone.utc)
+        src_located.node.mtime = datetime.now(UTC)
 
     async def symlink(self, target: str, link_path: str) -> None:
         norm = normalize_path(link_path)
         parent = parent_dir(norm)
         parent_node = self._ensure_dir(parent, MkdirOptions(recursive=True))
 
-        name = norm[norm.rfind("/") + 1 :] if "/" in norm[1:] else norm[1:]
+        name = _basename(norm, "symlink")
         parent_node.children[name] = _VSymlinkNode(
             target=target,
         )

@@ -137,6 +137,12 @@ class TestMkdir:
         with pytest.raises(FileNotFoundError):
             await empty_fs.mkdir("/a/b")
 
+    async def test_mkdir_recursive_does_not_replace_file(self, empty_fs: InMemoryFs) -> None:
+        await empty_fs.write_file("/a", "file")
+        with pytest.raises(NotADirectoryError):
+            await empty_fs.mkdir("/a/b", MkdirOptions(recursive=True))
+        assert await empty_fs.read_file("/a") == "file"
+
 
 class TestReaddir:
     async def test_readdir(self, sample_fs: InMemoryFs) -> None:
@@ -199,6 +205,10 @@ class TestCp:
         with pytest.raises(IsADirectoryError):
             await sample_fs.cp("/dir", "/dir_copy")
 
+    async def test_cp_file_to_root_fails(self, sample_fs: InMemoryFs) -> None:
+        with pytest.raises(IsADirectoryError):
+            await sample_fs.cp("/hello.txt", "/")
+
 
 class TestMv:
     async def test_mv_file(self, sample_fs: InMemoryFs) -> None:
@@ -210,6 +220,10 @@ class TestMv:
         await sample_fs.mv("/dir", "/dir_moved")
         assert not await sample_fs.exists("/dir")
         assert await sample_fs.exists("/dir_moved/sub/subfile.txt")
+
+    async def test_mv_file_to_root_fails(self, sample_fs: InMemoryFs) -> None:
+        with pytest.raises(IsADirectoryError):
+            await sample_fs.mv("/hello.txt", "/")
 
 
 # ── Symlinks ──────────────────────────────────────────────────────
@@ -236,6 +250,10 @@ class TestSymlinks:
         await empty_fs.symlink("/link_b", "/link_a")
         with pytest.raises(OSError):
             await empty_fs.read_file("/link_a")
+
+    async def test_symlink_to_root_path_fails(self, empty_fs: InMemoryFs) -> None:
+        with pytest.raises(IsADirectoryError):
+            await empty_fs.symlink("/target.txt", "/")
 
 
 # ── Glob ──────────────────────────────────────────────────────────

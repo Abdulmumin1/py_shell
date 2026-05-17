@@ -21,6 +21,9 @@ async def main() -> None:
         local = await workspace.local(tmp)
         await local.write_file("/persisted.txt", "stored through SQLite metadata + local blobs")
 
+        gc_result = await local.garbage_collect_blobs()
+        print(gc_result)
+
         reopened = await workspace.local(tmp)
         print(await reopened.read_file("/persisted.txt"))
 

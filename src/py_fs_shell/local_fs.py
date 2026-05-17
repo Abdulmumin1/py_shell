@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from py_fs_shell.fs.interface import (
@@ -46,6 +46,12 @@ class LocalFileSystem(FileSystem):
             raise create_enoent(path, operation)
         return self._assert_inside_root(os_path)
 
+    def _write_target(self, path: str, operation: str) -> Path:
+        os_path = self._to_os(path)
+        if os_path.exists() or os_path.is_symlink():
+            return self._assert_inside_root(os_path)
+        return os_path
+
     def _to_virtual(self, os_path: Path) -> str:
         rel = self._assert_inside_root(os_path).relative_to(self._root)
         return "/" if str(rel) == "." else "/" + str(rel).replace(os.sep, "/")
@@ -54,7 +60,7 @@ class LocalFileSystem(FileSystem):
         return FsStat(
             type=entry_type,
             size=st.st_size,
-            mtime=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
+            mtime=datetime.fromtimestamp(st.st_mtime, tz=UTC),
             mode=st.st_mode & 0o777,
         )
 
@@ -67,17 +73,17 @@ class LocalFileSystem(FileSystem):
         return await asyncio.to_thread(os_path.read_bytes)
 
     async def write_file(self, path: str, content: str) -> None:
-        os_path = self._to_os(path)
+        os_path = self._write_target(path, "writeFile")
         os_path.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(os_path.write_text, content, encoding="utf-8")
 
     async def write_file_bytes(self, path: str, content: bytes) -> None:
-        os_path = self._to_os(path)
+        os_path = self._write_target(path, "writeFile")
         os_path.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(os_path.write_bytes, content)
 
     async def append_file(self, path: str, content: FileContent) -> None:
-        os_path = self._to_os(path)
+        os_path = self._write_target(path, "appendFile")
         os_path.parent.mkdir(parents=True, exist_ok=True)
         data = content if isinstance(content, bytes) else content.encode("utf-8")
 
@@ -164,7 +170,7 @@ class LocalFileSystem(FileSystem):
     async def cp(self, src: str, dest: str, options: CpOptions | None = None) -> None:
         opts = options or CpOptions()
         src_path = self._target(src, "cp")
-        dest_path = self._to_os(dest)
+        dest_path = self._write_target(dest, "cp")
 
         def copy() -> None:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,7 +185,7 @@ class LocalFileSystem(FileSystem):
 
     async def mv(self, src: str, dest: str) -> None:
         src_path = self._target(src, "mv")
-        dest_path = self._to_os(dest)
+        dest_path = self._write_target(dest, "mv")
 
         def move() -> None:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
