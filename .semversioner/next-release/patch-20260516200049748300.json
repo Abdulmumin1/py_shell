@@ -1,4 +1,0 @@
-{
-  "type": "patch",
-  "description": "Fix filesystem safety issues, workspace blob cleanup, and release workflow guidance."
-}

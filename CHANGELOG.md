@@ -1,6 +1,10 @@
 # Changelog
 Note: version releases in the 0.x.y range may introduce breaking changes.
 
+## 0.0.3
+
+- patch: Fix filesystem safety issues, workspace blob cleanup, and release workflow guidance.
+
 ## 0.0.2
 
 - patch: Rename the published distribution to py-fs-shell and publish before creating release commits or tags.
